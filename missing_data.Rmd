@@ -1,0 +1,474 @@
+---
+title: <center> Missing Data </center> 
+author: <center> Joseph Kush </center> 
+date: <center> 11/6/2022 </center> 
+output:
+  html_document: default
+  pdf_document: default
+---
+
+
+
+### Missing data
+We know that missing data has the potential to be problematic when estimating models, 
+depending on the missing data mechanism. The default for most statistical software 
+is to use listwise deletion when handling missing data. Alternatives such as multiple 
+imputation may provide better, more robust estimates in the presence of missing data. 
+How do our estimates differ across the different techniques? 
+
+
+
+
+### High school and beyond 
+Work through an applied example using empirical data from the 
+High School and Beyond (HSB) study. 
+
+Let's read in and view our data.
+```{r}
+d <- read.csv('https://stats.idre.ucla.edu/wp-content/uploads/2016/02/hsbdemo.dat', header = F)
+```
+
+```{r, echo = F}
+d <- d[,6:8]
+names(d) <- c("read", "write", "math")
+```
+
+
+Let's also load any packages we need.
+```{r, echo = T, results = F, warnings = F, message = F}
+library("mice")
+library("naniar")
+```
+
+
+
+Now, let's view our data
+```{r}
+head(d)
+summary(d)
+plot(d$read, d$math, col = "darkgreen")
+```
+
+Looks like there is a positive, linear relationship between 
+reading scores and math scores. 
+
+
+
+Using all available observed data (n = 200), let's estimate a linear regression model, 
+in which our dependent/outcome variable 'math' is modeled as a function of 
+two independent/predictor variables, 'read' and 'write'.
+```{r}
+full_model <- lm(math ~ 0 + read + write, data = d)
+summary(full_model)
+```
+
+
+Our estimates show that reading and writing scores are both statistically significant 
+predictors of math scores. For a 1-unit increase in reading scores, math scores increase 
+by 0.51 points, on average. For a 1-unit increase in writing scores, math scores increase 
+by 0.49 points, on average. Unfortunately, we do not know the true linear relationship 
+between reading scores and math scores for all individuals in the population; however, 
+based on our sample of n = 200, this is our best guess. 
+
+
+
+### Missing Completely at Random (MCAR)  
+What happens if we purposefully delete values for some observations? 
+Remember that for missing data to be MCAR, the reason for the missing
+value is not dependent on any other variable. 
+
+
+
+Let's first make a binary indicator for whether or not an individual's 
+math score should be missing, with a probability set to a specific 
+level (and dependent on nothing else). 
+```{r}
+set.seed(681)
+d$na_math <- rbinom(n = nrow(d), size = 1, prob = 0.7)
+head(d)
+```
+
+
+
+Before we delete values for some observations, let's conduct a 
+two-sample $t$-test, comparing the means across our two groups. 
+```{r}
+# two-sample t-test ? 
+t.test(math ~ na_math, data = d)
+```
+
+Here, we see our two groups are virtually indistinguishable from 
+one another (m1 = 52.63, m2 = 52.65). 
+
+
+
+We see that some observations have a missing indicator equal to one, 
+while others do not. Based on the missing value indicator, we can 
+overwrite the math score as missing. 
+```{r}
+d$math <- ifelse(d$na_math == 1, NA, d$math)
+head(d)
+```
+
+
+What is the proportion of missingness? 
+```{r}
+prop.table(table(d$na_math))["1"]
+```
+
+
+
+Is our data MCAR? Let's use Little's (1988) MCAR test 
+to see if our data meets the assumptions of being MCAR. 
+```{r}
+# Little's (1988) MCAR test
+naniar::mcar_test(d[,c("math", "read", "write")])
+```
+
+We could interpret this as follows: "Patterns of 
+missingness were further probed. Little's (1988) multivariate 
+test of Missing Completely at Random (MCAR) indicated the data 
+did meet the assumptions of the MCAR missing data mechanism 
+($\chi^{2}_{(2)}$ = 0.629, $p$ = .730). Thus, listwise 
+deletion was used to drop observations with missing math scores 
+when estimating linear regression models, as listwise deletion has 
+been shown to produce unbiased estimates when missingness is MCAR". 
+
+
+
+
+Now let's estimate a linear regression using listwise deletion
+when 70% of our data is MCAR. 
+```{r}
+missing_model <- lm(math ~ 0 + read + write, data = d)
+summary(missing_model) # observations deleted due to missingness
+```
+We see our new estimates indicate that reading and writing scores 
+are both significant predictors. How do our estimates from the 
+missing data model using listwise deletion compare to those from 
+the full model? 
+
+```{r}
+coef(full_model)
+coef(missing_model)
+```
+Not off by too much, even with 70% missing. What if 20% were missing? 
+Let's re-read in our data (so that everything is observed). 
+```{r}
+d <- read.csv('https://stats.idre.ucla.edu/wp-content/uploads/2016/02/hsbdemo.dat', header = F)
+```
+
+```{r, echo = F}
+d <- d[,6:8]
+names(d) <- c("read", "write", "math")
+```
+
+Let's again make a binary indicator for whether or not an individual's 
+math score should be missing, where the probability is not dependent 
+on anything). 
+```{r}
+set.seed(681)
+d$na_math <- rbinom(n = nrow(d), size = 1, prob = 0.2)
+head(d)
+d$math <- ifelse(d$na_math == 1, NA, d$math)
+head(d)
+```
+
+
+What is the proportion of missingness? 
+```{r}
+prop.table(table(d$na_math))["1"]
+```
+
+
+Let's estimate a linear regression using listwise deletion
+when 20% of our data is MCAR. 
+```{r}
+missing_model <- lm(math ~ 0 + read + write, data = d)
+```
+
+
+How do our 20% missing estimates compare to the full model? 
+```{r}
+coef(full_model)
+coef(missing_model)
+```
+Not off by much at all! This is great news, indicating that if data is truly MCAR, 
+listwise deletion doesn't harm parameter estimates too much. 
+
+
+
+
+
+
+
+
+
+
+### Missing at Random (MAR)  
+Remember that for missing data to be MAR, the reason the value is missing 
+depends on other variables that are observed. 
+
+
+To begin, let's start with our full data.
+```{r}
+d <- read.csv('https://stats.idre.ucla.edu/wp-content/uploads/2016/02/hsbdemo.dat', header = F)
+```
+```{r, echo = F}
+d <- d[,6:8]
+names(d) <- c("read", "write", "math")
+```
+
+
+We will again make a binary indicator for whether or not an individual's 
+math score should be missing. However, this time, the probability is going to 
+depend on that individual's reading score.
+```{r}
+set.seed(681)
+
+d$na_math <- rbinom(n = nrow(d), size = 1, 
+                    prob = ifelse(d$read > quantile(d$read, probs = .7), 
+                                  1, 0))
+```
+
+
+Before we delete values for some observations, let's 
+again conduct a two-sample $t$-test. 
+```{r}
+# two-sample t-test ? 
+t.test(math ~ na_math, data = d)
+```
+
+Now we see our two groups are very different from 
+one another (m1 = 49.7, m2 = 60.3). 
+
+
+```{r}
+# overwrite the income value as missing if the missing indicator == 1 
+d$math <- ifelse(d$na_math == 1, NA, d$math)
+
+# view our data
+d[100:110,]
+
+# proportion of missing?
+prop.table(table(d$na_math))["1"]
+```
+
+
+
+
+Is our data MCAR?  
+```{r}
+# Little's (1988) MCAR test
+naniar::mcar_test(d[,c("math", "read", "write")])
+```
+
+Unfortunately, no ($p$ < 0.001). 
+
+
+
+
+
+
+Let's estimate a linear regression using listwise deletion
+when 30% of our data is MAR. 
+```{r}
+missing_model <- lm(math ~ 0 + read + write, data = d)
+summary(missing_model) # observations deleted due to missingness
+```
+
+
+We see our new estimates indicate that reading and writing scores 
+are both significant predictors. How do our estimates from the 
+missing data model using listwise deletion compare to those from 
+the full model? 
+```{r}
+coef(full_model)
+coef(missing_model)
+```
+
+
+When our data is MAR, even with only 30%, our estimates using listwise 
+deletion are now very different from those we got with the full sample. 
+
+
+
+What if we try to use multiple imputation to help us estimate our model? 
+We will use the "mice" package in R, with $m$ = 50 imputed datasets estimated
+using the predictive mean matching. 
+```{r, echo = T, results = "hide"}
+imps <- mice(d, m = 50, method = "pmm")
+
+res <- with(imps, lm(math ~ 0 + read + write))
+```
+
+
+
+Before we look at our multiple imputation estimates, let's remember what 
+our estimates were for the full model and the missing model using 
+listwise deletion. 
+```{r}
+coef(full_model)
+coef(missing_model)
+```
+
+
+
+And now, our multiple imputation estimates
+```{r}
+summary(pool(res))[,2]
+```
+Wow, our multiple imputation estimates were nearly identical 
+to those obtained from the full model. Thus, when missing 
+data are MAR, listwise deletion really warps our estimates, 
+while multiple imputation seems to do a great job. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### Missing Not at Random (MNAR)  
+When data is MNAR, that is extremely problematic. MNAR data indicates
+that the reason variable $x$ is missing is because of someone's value
+on variable $x$ directly. When MCAR, the reason is completely random 
+(i.e., not due to $x$, nor any other variables). When MAR, the reason 
+$x$ is missing is due to other variables in the dataset (e.g., $a$, $b$, etc.)
+When MNAR, the only thing we can use to help us predict the missing $x$ 
+value is the missing $x$ value. Thus, this is extremely problematic. 
+
+
+
+Let's again start with our full data.
+```{r}
+d <- read.csv('https://stats.idre.ucla.edu/wp-content/uploads/2016/02/hsbdemo.dat', header = F)
+```
+```{r, echo = F}
+d <- d[,6:8]
+names(d) <- c("read", "write", "math")
+```
+
+
+
+We will again make a binary indicator for whether or not an individual's 
+math score should be missing. However, this time, the probability is going to 
+depend on that individual's math score itself.
+```{r}
+set.seed(681)
+
+d$na_math <- rbinom(n = nrow(d), size = 1, 
+                    prob = ifelse(d$math > quantile(d$math, probs = 0.75) & 
+                                  d$math < quantile(d$math, probs = 0.95) | 
+                                  d$math < quantile(d$math, probs = 0.1),  
+                                 1, 0))
+```
+
+
+
+
+Before we delete values for some observations, let's 
+again conduct a two-sample $t$-test. 
+```{r}
+# two-sample t-test ? 
+t.test(math ~ na_math, data = d)
+```
+
+Now we see our two groups are very different from 
+one another (m1 = 50.9, m2 = 57.9). 
+
+
+
+
+
+```{r}
+# overwrite the income value as missing if the missing indicator == 1 
+d$math <- ifelse(d$na_math == 1, NA, d$math)
+
+# view our data
+d[100:110,]
+
+# proportion of missing?
+prop.table(table(d$na_math))["1"]
+```
+
+
+
+
+Is our data MCAR?  
+```{r}
+# Little's (1988) MCAR test
+naniar::mcar_test(d[,c("math", "read", "write")])
+```
+
+Unfortunately, no ($p$ = 0.0004). 
+
+
+
+
+
+
+
+
+Let's estimate a linear regression using listwise deletion
+when 25% of our data is MNAR. 
+```{r}
+missing_model <- lm(math ~ 0 + read + write, data = d)
+summary(missing_model) # observations deleted due to missingness
+```
+
+
+We see our new estimates indicate that reading and writing scores 
+are both significant predictors. How do our estimates from the 
+missing data model using listwise deletion compare to those from 
+the full model? 
+```{r}
+coef(full_model)
+coef(missing_model)
+```
+
+
+When our data is MNAR, even with only 25%, our estimates using listwise 
+deletion are now very different from those we got with the full sample. 
+
+
+
+What if we try to use multiple imputation to help us estimate our model? 
+We will use the "mice" package in R, with $m$ = 50 imputed datasets estimated
+using the predictive mean matching. 
+```{r, echo = T, results = "hide"}
+library("mice")
+
+imps <- mice(d, m = 50, method = "pmm")
+
+res <- with(imps, lm(math ~ 0 + read + write))
+```
+
+
+
+Before we look at our multiple imputation estimates, let's remember what 
+our estimates were for the full model and the missing model using 
+listwise deletion. 
+```{r}
+coef(full_model)
+coef(missing_model)
+```
+
+
+
+And now, our multiple imputation estimates.
+```{r}
+summary(pool(res))[,2]
+```
+Our multiple imputation estimates are still extremely 
+off from those obtained from the full model. Thus, when missing 
+data are MNAR, listwise deletion really warps our estimates, 
+but multiple imputation is not able to help us.
